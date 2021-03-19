@@ -1,0 +1,25 @@
+{
+  "app": "dotnet run -p eks-cdk-stack-dotnet.csproj",
+  "context": {
+    "EcrRepoNames": "vlads-awesome-image-repo",
+    "EksClusterName": "vlads-awesome-cluster",
+    "OptionalExistingVpcId": null,
+    "K8sVersion": "1.19",
+    "InstanceType": "t3a.large",
+    "InstanceCount": 1,
+    "FargateNamespaces": null,
+    "SpotInstanceTypes": "c5.large,c5a.large,c5d.large,t3a.large,t3.large",
+    "SpotInstanceCount": 2,
+    "InstallAwsLbController": true,
+    "LbControllerNamespace": "kube-system",
+
+    "@aws-cdk/core:enableStackNameDuplicates": "true",
+    "aws-cdk:enableDiffNoFail": "true",
+    "@aws-cdk/core:stackRelativeExports": "true",
+    "@aws-cdk/aws-ecr-assets:dockerIgnoreSupport": true,
+    "@aws-cdk/aws-secretsmanager:parseOwnedSecretName": true,
+    "@aws-cdk/aws-kms:defaultKeyPolicies": true,
+    "@aws-cdk/aws-s3:grantWriteWithoutAcl": true,
+    "@aws-cdk/aws-ecs-patterns:removeDefaultDesiredCount": true
+  }
+}
