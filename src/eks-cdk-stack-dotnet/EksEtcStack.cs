@@ -142,8 +142,8 @@ namespace EksEtc
         }
 
         private List<Repository>? BuildEcrRepos()
-            =>
-            this.GetCtxStrings("EcrRepoNames")?
+        {
+            List<Repository>? repos = this.GetCtxStrings("EcrRepoNames")?
                 .Select(ecrRepoName =>
                     new Repository(this, $"EksEtc-ECR-{ecrRepoName}-repo", new RepositoryProps{
                         RepositoryName = ecrRepoName,
@@ -151,5 +151,15 @@ namespace EksEtc
                     })
                 )
                 .ToList();
+            
+            Repository? repo = repos?.FirstOrDefault();
+            if(repo != null)
+                new CfnOutput(this, "Docker-Login-For-ECR", new CfnOutputProps {
+                    Description = "AWS CLI command to authorize docker to push container images to AWS Elastic Container Service (ECR)",
+                    Value = $"aws ecr get-login-password --region {this.Region} | docker login --username AWS --password-stdin {repo.RepositoryUri.Substring(0, repo.RepositoryUri.LastIndexOf("/"))}"
+                });
+
+            return repos;
+        }
     }
 }
