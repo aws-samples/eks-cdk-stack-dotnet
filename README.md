@@ -16,6 +16,11 @@ This CDK stack **deploys** AWS Elastic Kubernetes Service (**EKS**) cluster to y
 - Or any **combination** of the above
 - Along with optional **AWS Load Balancer Controller** (f.k.a. AWS Ingress Controller)
 
+## Limitations
+
+> "`cdk deploy`" command for this stack should be run on a system with Internet access.
+Running it from an isolated subnet will fail.
+
 ## Useful commands
 
 * `dotnet build src` compile this app
