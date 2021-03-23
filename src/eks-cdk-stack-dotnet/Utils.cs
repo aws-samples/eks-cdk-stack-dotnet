@@ -60,4 +60,10 @@ public static class Utils
         using var webClient = new WebClient();
         return webClient.DownloadString(url);
     }
+
+    public static IEnumerable<T> ToEnumerable<T>(this T item)
+    {
+        if((object?)item != null)
+            yield return item;
+    }
 }
