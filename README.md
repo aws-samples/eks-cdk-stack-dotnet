@@ -4,18 +4,19 @@
 
 * Make sure you have [this](https://dotnet.microsoft.com/download) installed.
 * cd into src\eks-cdk-stack-dotnet
-* Check out [installation parameters](./src/eks-cdk-stack-dotnet/cdk.json)
+* Check out [installation parameters](./src/eks-cdk-stack-dotnet/cdk.json) for better idea of this stack's capabilities.
 * Run `cdk deploy -c EksClusterName=name-your-cluster`
 
 ## Overview
 
 This CDK stack **deploys** AWS Elastic Kubernetes Service (**EKS**) cluster to your AWS environment (current AWS account and region) with 
-- **Regular (on-demand) EC2** instance Linux worker nodes
-- **Spot EC2** instance Linux worker nodes
-- **Fargate** (serverless) Linux worker nodes
-- **On-demand Graviton (ARM)** instance Linux Worker nodes (when using these, please be sure to specify `nodeSelector` for pods running images incompatible with ARM CPUs).
-- Or any **combination** of the above
+- **Regular (on-demand) EC2** instance Linux worker nodes,
+- **Spot EC2** instance Linux worker nodes,
+- **Fargate** (serverless) Linux worker nodes,
+- **On-demand Graviton (ARM)** instance Linux Worker nodes (when using these, please be sure to specify `nodeSelector` for pods running images incompatible with ARM CPUs),
+- Or any **combination** of the above.
 - Along with optional **AWS Load Balancer Controller** (f.k.a. AWS Ingress Controller)
+- ...and optional AWS Elastic Container Registry (**ECR**) repositories.
 
 ## Stack Outputs
 
