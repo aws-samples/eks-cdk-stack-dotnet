@@ -15,6 +15,8 @@ namespace EksEtc
 {
     public class EksEtcStack : Stack
     {
+        #region Properties mapped to CDK context parameters (cdk.json)
+
         public string? ExistingVpcId => this.GetCtxString("OptionalExistingVpcId");
         public string K8sVersion => this.GetCtxString("K8sVersion", "1.19");
         public string EksClusterName => this.GetCtxString("EksClusterName", "test-cluster-by-cdk");
@@ -33,7 +35,9 @@ namespace EksEtc
         public bool ShouldAddAppMeshController => this.GetCtxValue<bool>("InstallAppMeshController", false);
         public string AppMeshControllerNamespace => this.GetCtxString("AppMeshControllerNamespace", "appmesh-system");
         public bool TraceWithXRayOnAppMesh => this.GetCtxValue<bool>("TraceWithXRayOnAppMesh", true);
-        
+
+        #endregion Properties mapped to CDK context parameters (cdk.json)
+
         public bool HasFargate => this.FargateNamespaces?.Length > 0;
         public bool HasEc2LinuxNodes => this.OnDemandInstanceCount >= 1 || this.SpotInstanceCount >= 1;
         public bool HasGravitonNodes => this.GravitonInstanceCount >= 1;
@@ -53,57 +57,6 @@ namespace EksEtc
             _ = this.AddClusterAdminIamRoles(eksCluster);
             _ = this.AddAwsLoadBalancerController(eksCluster);
             _ = this.AddAppMeshController(eksCluster);
-        }
-
-        private HelmChart? AddAppMeshController(Cluster eksCluster)
-        {
-            if(!this.ShouldAddAppMeshController)
-                return null;
-            
-            KubernetesManifest? amcNamespace = this.AddNamespaceIfNecessary(eksCluster, this.AppMeshControllerNamespace);
-
-            ServiceAccount svcAccount = eksCluster.AddServiceAccount("aws-app-mesh-controller-svc-account", new ServiceAccountOptions {
-                Name = "appmesh-controller",
-                Namespace = this.AppMeshControllerNamespace
-            });
-            svcAccount.Role.AddManagedPolicy(ManagedPolicy.FromAwsManagedPolicyName("AWSCloudMapFullAccess"));
-            svcAccount.Role.AddManagedPolicy(ManagedPolicy.FromAwsManagedPolicyName("AWSAppMeshFullAccess"));
-
-            if(amcNamespace != null)
-                svcAccount.Node.AddDependency(amcNamespace);
-
-            var chartValues = new Dictionary<string, object> {
-                ["region"] = this.Region,
-                ["serviceAccount"] = new Dictionary<string, object> {
-                    ["create"] = false,
-                    ["name"] = svcAccount.ServiceAccountName
-                }
-            };
-
-            if(this.TraceWithXRayOnAppMesh)
-                chartValues.Add("tracing", new Dictionary<string, object> {
-                    ["enabled"] = true,
-                    ["provider"] = "x-ray"
-                });
-
-            HelmChart chart = eksCluster.AddHelmChart("appmesh-controller", new HelmChartProps {
-                Repository = "https://aws.github.io/eks-charts",
-                Chart = "appmesh-controller",
-                Release = "app-mesh-by-cdk",
-                Namespace = this.AppMeshControllerNamespace, 
-                Values = chartValues
-            });
-
-            chart.Node.AddDependency(svcAccount);
-            return chart;
-        }
-
-        private KubernetesManifest? AddNamespaceIfNecessary(Cluster eksCluster, string namespaceName)
-        {
-            if(this.HasOnlyFargate && !this.FargateNamespaces.Contains(namespaceName))
-                throw new Exception($"Fargate is the only type of nodes specified, but namespace \"{namespaceName}\" is not among Fargate namespaces: \"{string.Join(",", this.FargateNamespaces)}\"");
-
-            return DefaultK8sNamespaces.Contains(namespaceName) ? null : eksCluster.AddNamespace(namespaceName);
         }
 
         /// <summary>
@@ -325,6 +278,80 @@ namespace EksEtc
             }
 
             return adminRoles;
+        }
+
+        /// <summary>
+        /// Installs AWS App Mesh Controller - an add-on integrating Kubernetes cluster with AWS App Mesh.
+        /// </summary>
+        /// <param name="eksCluster"></param>
+        /// <returns></returns>
+        private HelmChart? AddAppMeshController(Cluster eksCluster)
+        {
+            if (!this.ShouldAddAppMeshController)
+                return null;
+
+            // Create K8s namespace if installing the controller in non-default/kube-system namespace
+            KubernetesManifest? amcNamespace = this.AddNamespaceIfNecessary(eksCluster, this.AppMeshControllerNamespace);
+
+            // Create K8s service account for the controller. This service account will be mapped to AWS IAM Roles
+            // letting controller interface with AWS services to do its job.
+            ServiceAccount svcAccount = eksCluster.AddServiceAccount("aws-app-mesh-controller-svc-account", new ServiceAccountOptions
+            {
+                Name = "appmesh-controller",
+                Namespace = this.AppMeshControllerNamespace
+            });
+            svcAccount.Role.AddManagedPolicy(ManagedPolicy.FromAwsManagedPolicyName("AWSCloudMapFullAccess"));
+            svcAccount.Role.AddManagedPolicy(ManagedPolicy.FromAwsManagedPolicyName("AWSAppMeshFullAccess"));
+
+            if (amcNamespace != null)
+                svcAccount.Node.AddDependency(amcNamespace);
+
+            // Set Helm chart parameters
+            var chartValues = new Dictionary<string, object>
+            {
+                ["region"] = this.Region,
+                ["serviceAccount"] = new Dictionary<string, object>
+                {
+                    ["create"] = false,
+                    ["name"] = svcAccount.ServiceAccountName
+                }
+            };
+
+            // If X-Ray tracing enabled via parameters, turn X-Ray on via helm chart params.
+            if (this.TraceWithXRayOnAppMesh)
+                chartValues.Add("tracing", new Dictionary<string, object>
+                {
+                    ["enabled"] = true,
+                    ["provider"] = "x-ray"
+                });
+
+            // Run the Helm Chart installing App Mesh controller
+            // Note that Helm release "app-mesh-by-cdk" will be accessible using "helm list" command
+            HelmChart chart = eksCluster.AddHelmChart("appmesh-controller", new HelmChartProps
+            {
+                Repository = "https://aws.github.io/eks-charts",
+                Chart = "appmesh-controller",
+                Release = "app-mesh-by-cdk",
+                Namespace = this.AppMeshControllerNamespace,
+                Values = chartValues
+            });
+
+            chart.Node.AddDependency(svcAccount);
+            return chart;
+        }
+
+        /// <summary>
+        /// Creates K8s namespace if namespace name is not "default", "kube-system", or "kube-public"
+        /// </summary>
+        /// <param name="eksCluster"></param>
+        /// <param name="namespaceName"></param>
+        /// <returns></returns>
+        private KubernetesManifest? AddNamespaceIfNecessary(Cluster eksCluster, string namespaceName)
+        {
+            if (this.HasOnlyFargate && !this.FargateNamespaces.Contains(namespaceName))
+                throw new Exception($"Fargate is the only type of nodes specified, but namespace \"{namespaceName}\" is not among Fargate namespaces: \"{string.Join(",", this.FargateNamespaces)}\"");
+
+            return DefaultK8sNamespaces.Contains(namespaceName) ? null : eksCluster.AddNamespace(namespaceName);
         }
     }
 }
