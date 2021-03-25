@@ -16,7 +16,7 @@
     "InstallAwsLbController": true,
     "LbControllerNamespace": "kube-system",
     "ExistingIamRolesToAllowEksManagement": null,
-    "InstallAppMeshController": true,
+    "InstallAppMeshController": false,
     "AppMeshControllerNamespace": "appmesh-system",
     "TraceWithXRayOnAppMesh": true,
 
