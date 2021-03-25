@@ -1,7 +1,7 @@
 {
   "app": "dotnet run -p eks-cdk-stack-dotnet.csproj",
   "context": {
-    "StackName": "eks-by-cdk",
+    "StackName": null,
     "EcrRepoNames": null,
     "EksClusterName": "awesome-cluster",
     "OptionalExistingVpcId": null,
@@ -16,6 +16,9 @@
     "InstallAwsLbController": true,
     "LbControllerNamespace": "kube-system",
     "ExistingIamRolesToAllowEksManagement": null,
+    "InstallAppMeshController": true,
+    "AppMeshControllerNamespace": "appmesh-system",
+    "TraceWithXRayOnAppMesh": true,
 
     "@aws-cdk/core:enableStackNameDuplicates": "true",
     "aws-cdk:enableDiffNoFail": "true",
