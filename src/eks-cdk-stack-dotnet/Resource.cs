@@ -128,4 +128,17 @@ public static class Resource
             AmiType = amiType,
         });
     }
+
+  public static KubernetesManifest AddNamespace(this Cluster eksCluster, string k8sNamespace)
+  {
+    var manifest = new Dictionary<string,object> {
+        ["apiVersion"] = "v1",
+        ["kind"] = "Namespace",
+        ["metadata"] = new Dictionary<string, object> {
+            ["name"] = k8sNamespace
+        }
+    };
+
+    return eksCluster.AddManifest($"{k8sNamespace}-ns", manifest);
+  }
 }

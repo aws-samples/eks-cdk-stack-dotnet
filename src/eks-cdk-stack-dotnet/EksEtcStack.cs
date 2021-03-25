@@ -15,13 +15,95 @@ namespace EksEtc
 {
     public class EksEtcStack : Stack
     {
+        public string? ExistingVpcId => this.GetCtxString("OptionalExistingVpcId");
+        public string K8sVersion => this.GetCtxString("K8sVersion", "1.19");
+        public string EksClusterName => this.GetCtxString("EksClusterName", "test-cluster-by-cdk");
+        public double OnDemandInstanceCount => this.GetCtxValue("OnDemandInstanceCount", 3.0);
+        public double SpotInstanceCount => this.GetCtxValue("SpotInstanceCount", 0.0);
+        public string[] FargateNamespaces => this.GetCtxStrings("FargateNamespaces")?.ToArray() ?? new string[0];
+        public double GravitonInstanceCount => this.GetCtxValue("GravitonArmInstanceCount", 0.0);
+        public string GravitonInstanceType => this.GetCtxString("GravitonArmInstanceType", "t4g.medium");
+        public string OnDemandInstanceType => this.GetCtxString("OnDemandInstanceType", "t3a.small");
+        public IEnumerable<string> SpotInstanceTypes => this.GetCtxStrings("SpotInstanceTypes") ?? Enumerable.Empty<string>();
+        public bool ShouldAddAlbController => this.GetCtxValue<bool>("InstallAwsLbController", false);
+        public string LbControllerNamespace => this.GetCtxString("LbControllerNamespace", "kube-system");
+        public IEnumerable<string> EcrRepoNames => this.GetCtxStrings("EcrRepoNames") ?? Enumerable.Empty<string>();
+        public IEnumerable<string> AdminRoleNames => this.GetCtxStrings("ExistingIamRolesToAllowEksManagement")?.ToList() ?? Enumerable.Empty<string>();
+        public static string[] DefaultK8sNamespaces => new string[] { "default", "kube-system", "kube-public" };
+        public bool ShouldAddAppMeshController => this.GetCtxValue<bool>("InstallAppMeshController", false);
+        public string AppMeshControllerNamespace => this.GetCtxString("AppMeshControllerNamespace", "appmesh-system");
+        public bool TraceWithXRayOnAppMesh => this.GetCtxValue<bool>("TraceWithXRayOnAppMesh", true);
+        
+        public bool HasFargate => this.FargateNamespaces?.Length > 0;
+        public bool HasEc2LinuxNodes => this.OnDemandInstanceCount >= 1 || this.SpotInstanceCount >= 1;
+        public bool HasGravitonNodes => this.GravitonInstanceCount >= 1;
+        public bool HasLinuxCompute => this.HasEc2LinuxNodes || this.HasFargate || this.HasGravitonNodes;
+        public bool HasOnlyFargate => this.HasFargate && !this.HasEc2LinuxNodes && !this.HasGravitonNodes;
+
         internal EksEtcStack(Construct scope, string id, IStackProps? props = null) : base(scope, id, props)
         {
+            Console.WriteLine($"OnDemandInstanceCount = {OnDemandInstanceCount}");
+            Console.WriteLine($"SpotInstanceCount = {SpotInstanceCount}");
+            Console.WriteLine($"GravitonInstanceCount = {GravitonInstanceCount}");
+            Console.WriteLine($"HasOnlyFargate = {HasOnlyFargate}");
+
             _ = this.BuildEcrRepos();
             IVpc vpc = this.GetVpc();
             Cluster eksCluster = this.BuildEksCluster(vpc);
             _ = this.AddClusterAdminIamRoles(eksCluster);
-            _ = AddAwsLoadBalancerController(eksCluster);
+            _ = this.AddAwsLoadBalancerController(eksCluster);
+            _ = this.AddAppMeshController(eksCluster);
+        }
+
+        private HelmChart? AddAppMeshController(Cluster eksCluster)
+        {
+            if(!this.ShouldAddAppMeshController)
+                return null;
+            
+            KubernetesManifest? amcNamespace = this.AddNamespaceIfNecessary(eksCluster, this.AppMeshControllerNamespace);
+
+            ServiceAccount svcAccount = eksCluster.AddServiceAccount("aws-app-mesh-controller-svc-account", new ServiceAccountOptions {
+                Name = "appmesh-controller",
+                Namespace = this.AppMeshControllerNamespace
+            });
+            svcAccount.Role.AddManagedPolicy(ManagedPolicy.FromAwsManagedPolicyName("AWSCloudMapFullAccess"));
+            svcAccount.Role.AddManagedPolicy(ManagedPolicy.FromAwsManagedPolicyName("AWSAppMeshFullAccess"));
+
+            if(amcNamespace != null)
+                svcAccount.Node.AddDependency(amcNamespace);
+
+            var chartValues = new Dictionary<string, object> {
+                ["region"] = this.Region,
+                ["serviceAccount"] = new Dictionary<string, object> {
+                    ["create"] = false,
+                    ["name"] = svcAccount.ServiceAccountName
+                }
+            };
+
+            if(this.TraceWithXRayOnAppMesh)
+                chartValues.Add("tracing", new Dictionary<string, object> {
+                    ["enabled"] = true,
+                    ["provider"] = "x-ray"
+                });
+
+            HelmChart chart = eksCluster.AddHelmChart("appmesh-controller", new HelmChartProps {
+                Repository = "https://aws.github.io/eks-charts",
+                Chart = "appmesh-controller",
+                Release = "app-mesh-by-cdk",
+                Namespace = this.AppMeshControllerNamespace, 
+                Values = chartValues
+            });
+
+            chart.Node.AddDependency(svcAccount);
+            return chart;
+        }
+
+        private KubernetesManifest? AddNamespaceIfNecessary(Cluster eksCluster, string namespaceName)
+        {
+            if(this.HasOnlyFargate && !this.FargateNamespaces.Contains(namespaceName))
+                throw new Exception($"Fargate is the only type of nodes specified, but namespace \"{namespaceName}\" is not among Fargate namespaces: \"{string.Join(",", this.FargateNamespaces)}\"");
+
+            return DefaultK8sNamespaces.Contains(namespaceName) ? null : eksCluster.AddNamespace(namespaceName);
         }
 
         /// <summary>
@@ -32,12 +114,12 @@ namespace EksEtc
         /// <returns></returns>
         private IVpc GetVpc()
         {
-            string? existingVpcId = this.GetCtxString("OptionalExistingVpcId");
+            
             const string vpcResourceId = "eks-vpc";
 
-            if(existingVpcId != null)
+            if(this.ExistingVpcId != null)
                 // Use existing VPC (it will need to have private subnets)
-                return Vpc.FromLookup(this, vpcResourceId, new VpcLookupOptions{ VpcId = existingVpcId });
+                return Vpc.FromLookup(this, vpcResourceId, new VpcLookupOptions{ VpcId = this.ExistingVpcId });
             
             // Create a new VPC specifically for the EKS
             return new Vpc(this, vpcResourceId, new VpcProps { MaxAzs = 3 });
@@ -53,32 +135,18 @@ namespace EksEtc
             // Using CDK Context parameters (cdk.json) rather than CloudFormation parameters.
             // The reason is that CFN parameters, especially non-string ones, are not always supported.
             // Another assumption is that it's not hard to run "cdk deploy" from a CI/CD pipeline.
-            string k8sVersion = this.GetCtxString("K8sVersion", "1.19");
-            string eksClusterName = this.GetCtxString("EksClusterName", "test-cluster-by-cdk");
-            double onDemandInstanceCount = this.GetCtxValue("OnDemandInstanceCount", 3.0);
-            double spotInstanceCount = this.GetCtxValue("SpotInstanceCount", 0.0);
-            string[]? fargateNamespaces = this.GetCtxStrings("FargateNamespaces")?.ToArray();
-            double gravitonInstanceCount = this.GetCtxValue("GravitonArmInstanceCount", 0.0);
-            
-            bool hasFargate = fargateNamespaces?.Length > 0;
-            bool hasEc2LinuxNodes = onDemandInstanceCount >= 1 || spotInstanceCount >= 1;
-            bool hasGravitonNodes = gravitonInstanceCount >= 1;
-            bool hasLinuxCompute = hasEc2LinuxNodes || hasFargate || hasGravitonNodes;
-
-            if(!hasLinuxCompute)
+            if(!HasLinuxCompute)
                 throw new Exception($"At least one Linux compute node is required to run KubeDNS.");
 
             var eksCluster = new Cluster(this, "eks-cluster", new ClusterProps {
-                ClusterName = eksClusterName,
+                ClusterName = EksClusterName,
                 Vpc = vpc,
-                Version = KubernetesVersion.Of(k8sVersion),
+                Version = KubernetesVersion.Of(K8sVersion),
                 DefaultCapacity = 0,
-                CoreDnsComputeType = hasEc2LinuxNodes ? CoreDnsComputeType.EC2 : CoreDnsComputeType.FARGATE
+                CoreDnsComputeType = HasEc2LinuxNodes ? CoreDnsComputeType.EC2 : CoreDnsComputeType.FARGATE
             });
 
-            _ = this.AddNodeGroups(eksCluster, hasFargate, fargateNamespaces, 
-                        gravitonInstanceCount, onDemandInstanceCount, spotInstanceCount
-                );
+            _ = this.AddNodeGroups(eksCluster);
 
             return eksCluster;
         }
@@ -87,48 +155,38 @@ namespace EksEtc
         /// Adds various compute node types to the cluster: regular on-demand EC2 x86 nodes, Fargate nodes, Graviton nodes, Spot instances.
         /// </summary>
         /// <param name="eksCluster"></param>
-        /// <param name="hasFargate"></param>
-        /// <param name="fargateNamespaces">Fargate nodes will be used only if at least one K8s namespace will be assigned to AWS Fargate</param>
-        /// <param name="gravitonInstanceCount"></param>
-        /// <param name="onDemandInstanceCount"></param>
-        /// <param name="spotInstanceCount"></param>
         /// <returns></returns>
-        private List<Nodegroup> AddNodeGroups(Cluster eksCluster, 
-                bool hasFargate, string[]? fargateNamespaces, 
-                double gravitonInstanceCount,
-                double onDemandInstanceCount,
-                double spotInstanceCount)
+        private List<Nodegroup> AddNodeGroups(Cluster eksCluster)
         {
             var nodeGroups = new List<Nodegroup>();
 
-            if (hasFargate)
+            if (this.HasFargate)
             {
                 eksCluster.AddFargateProfile("eks-fargate", new FargateProfileOptions
                 {
-                    Selectors = fargateNamespaces?.Select(ns => new Selector { Namespace = ns }).ToArray()
+                    Selectors = this.FargateNamespaces.Select(ns => new Selector { Namespace = ns }).ToArray()
                 });
             }
 
-            if (gravitonInstanceCount > 0)
+            if (this.HasGravitonNodes)
             {
-                string instanceType = this.GetCtxString("GravitonArmInstanceType", "t4g.medium");
-                Nodegroup? nodeGroup = eksCluster.AddNodeGroup("eks-graviton-arm-node-group", instanceType, gravitonInstanceCount,
+                Nodegroup? nodeGroup = eksCluster.AddNodeGroup("eks-graviton-arm-node-group", 
+                                        GravitonInstanceType, this.GravitonInstanceCount,
                                         CapacityType.ON_DEMAND, NodegroupAmiType.AL2_ARM_64
                                     );
                 nodeGroups.Add(nodeGroup);
             }
 
-            if (onDemandInstanceCount > 0)
+            if (this.OnDemandInstanceCount >= 1)
             {
-                string instanceType = this.GetCtxString("OnDemandInstanceType", "t3a.small");
-                Nodegroup? nodeGroup = eksCluster.AddNodeGroup("eks-node-group", instanceType, onDemandInstanceCount);
+                Nodegroup? nodeGroup = eksCluster.AddNodeGroup("eks-node-group", OnDemandInstanceType, this.OnDemandInstanceCount);
                 nodeGroups.Add(nodeGroup);
             }
 
-            if (spotInstanceCount > 0)
+            if (this.SpotInstanceCount >= 1)
             {
-                Nodegroup? nodeGroup = eksCluster.AddNodeGroup("eks-spot-node-group", this.GetCtxStrings("SpotInstanceTypes"),
-                    spotInstanceCount, CapacityType.SPOT
+                Nodegroup? nodeGroup = eksCluster.AddNodeGroup("eks-spot-node-group", this.SpotInstanceTypes,
+                    this.SpotInstanceCount, CapacityType.SPOT
                 );
                 nodeGroups.Add(nodeGroup);
             }
@@ -143,20 +201,19 @@ namespace EksEtc
         /// <returns></returns>
         private HelmChart? AddAwsLoadBalancerController(Cluster eksCluster)
         {
-            bool addAlbController = this.GetCtxValue<bool>("InstallAwsLbController", false);
-            if(!addAlbController)
+            if(!ShouldAddAlbController)
                 return null;
             
-            string lbControllerNamespace = this.GetCtxString("LbControllerNamespace", "kube-system");
-            
-            ServiceAccount svcAccount = CreateLbControllerServiceAccount(eksCluster, lbControllerNamespace);
+            KubernetesManifest? lbcNamespace = this.AddNamespaceIfNecessary(eksCluster, this.LbControllerNamespace);
+            ServiceAccount svcAccount = CreateLbControllerServiceAccount(eksCluster, this.LbControllerNamespace, lbcNamespace);
             
             // Runs Helm chart installing AWS LB controller.
             // The manifest will be accessible via "helm list" on the system where "cdk deploy" was run.
-            return eksCluster.AddHelmChart("aws-load-balancer-controller-chart", new HelmChartOptions {
+            HelmChart chart = eksCluster.AddHelmChart("aws-load-balancer-controller-chart", new HelmChartOptions {
                 Repository = "https://aws.github.io/eks-charts",
                 Chart = "aws-load-balancer-controller",
-                Namespace = lbControllerNamespace,
+                Release = "aws-lb-controller-by-cdk",
+                Namespace = this.LbControllerNamespace,
                 Values = new Dictionary<string,object> {
                     ["fullnameOverride"] = "aws-lb-controller",
                     ["clusterName"] = eksCluster.ClusterName,
@@ -165,9 +222,13 @@ namespace EksEtc
                         ["name"] = svcAccount.ServiceAccountName,
                     },
                     ["vpcId"] = eksCluster.Vpc.VpcId,
-                    ["region"] = Stack.Of(this).Region
+                    ["region"] = this.Region
                 }
             });
+
+            chart.Node.AddDependency(svcAccount);
+
+            return chart;
         }
 
         /// <summary>
@@ -177,12 +238,15 @@ namespace EksEtc
         /// <param name="eksCluster"></param>
         /// <param name="k8sNamespace">K8s namespace where ALB Ingress Controller will be installed</param>
         /// <returns></returns>
-        private static ServiceAccount CreateLbControllerServiceAccount(Cluster eksCluster, string k8sNamespace)
+        private static ServiceAccount CreateLbControllerServiceAccount(Cluster eksCluster, string k8sNamespace, KubernetesManifest? lbcNamespace)
         {
             ServiceAccount svcAccount = eksCluster.AddServiceAccount("aws-lb-controller-svc-account", new ServiceAccountOptions {
                 Name = "aws-lb-controller",
                 Namespace = k8sNamespace
             });
+
+            if(lbcNamespace != null)
+                svcAccount.Node.AddDependency(lbcNamespace);
 
             IEnumerable<object>? lbControllerIamPolicy = DownloadLbControllerIamPolicyStatements();
             foreach(object iamPolicyJsonItem in lbControllerIamPolicy)
@@ -215,8 +279,7 @@ namespace EksEtc
         /// <returns></returns>
         private List<Repository>? BuildEcrRepos()
         {
-            List<Repository>? repos = this.GetCtxStrings("EcrRepoNames")?
-                .Select(ecrRepoName =>
+            List<Repository> repos = this.EcrRepoNames.Select(ecrRepoName =>
                     new Repository(this, $"EksEtc-ECR-{ecrRepoName}-repo", new RepositoryProps{
                         RepositoryName = ecrRepoName,
                         RemovalPolicy = RemovalPolicy.DESTROY,
@@ -224,7 +287,7 @@ namespace EksEtc
                 )
                 .ToList();
             
-            Repository? repo = repos?.FirstOrDefault();
+            Repository? repo = repos.FirstOrDefault();
             if(repo != null)
                 // Create stack output simplifying `docker` CLI authorization to upload container images to the ECR
                 new CfnOutput(this, "Docker-Login-For-ECR", new CfnOutputProps {
@@ -243,11 +306,10 @@ namespace EksEtc
         /// <returns></returns>
         private List<IRole>? AddClusterAdminIamRoles(Cluster eksCluster)
         {
-            var adminRoleNames = this.GetCtxStrings("ExistingIamRolesToAllowEksManagement")?.ToList();
-            if(adminRoleNames?.FirstOrDefault() == null)
+            if(AdminRoleNames.FirstOrDefault() == null)
                 return null;
 
-            var roleEnum = from adminRoleName in adminRoleNames
+            var roleEnum = from adminRoleName in AdminRoleNames
                            select Role.FromRoleArn(this, $"eks-admin-role-{adminRoleName}", $"arn:aws:iam::{this.Account}:role/{adminRoleName}");
             var adminRoles = roleEnum.ToList();
             
