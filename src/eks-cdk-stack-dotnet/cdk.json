@@ -1,0 +1,32 @@
+{
+  "app": "dotnet run -p eks-cdk-stack-dotnet.csproj",
+  "context": {
+    "StackName": null,
+    "EcrRepoNames": null,
+    "EksClusterName": "awesome-cluster",
+    "OptionalExistingVpcId": null,
+    "K8sVersion": "1.19",
+    "OnDemandInstanceType": "t3a.large",
+    "OnDemandInstanceCount": 1,
+    "FargateNamespaces": null,
+    "SpotInstanceTypes": "c5.large,c5a.large,c5d.large,t3a.large,t3.large",
+    "SpotInstanceCount": 2,
+    "GravitonArmInstanceType": "t4g.large",
+    "GravitonArmInstanceCount": 0,
+    "InstallAwsLbController": true,
+    "LbControllerNamespace": "kube-system",
+    "ExistingIamRolesToAllowEksManagement": null,
+    "InstallAppMeshController": false,
+    "AppMeshControllerNamespace": "appmesh-system",
+    "TraceWithXRayOnAppMesh": true,
+
+    "@aws-cdk/core:enableStackNameDuplicates": "true",
+    "aws-cdk:enableDiffNoFail": "true",
+    "@aws-cdk/core:stackRelativeExports": "true",
+    "@aws-cdk/aws-ecr-assets:dockerIgnoreSupport": true,
+    "@aws-cdk/aws-secretsmanager:parseOwnedSecretName": true,
+    "@aws-cdk/aws-kms:defaultKeyPolicies": true,
+    "@aws-cdk/aws-s3:grantWriteWithoutAcl": true,
+    "@aws-cdk/aws-ecs-patterns:removeDefaultDesiredCount": true
+  }
+}
