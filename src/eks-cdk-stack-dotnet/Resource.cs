@@ -32,6 +32,8 @@ public static class Resource
         object retVal = scope.Node.TryGetContext(name);
         if(retVal == null)
           return defaultValue;
+        if(retVal is string)
+          return (T)Convert.ChangeType(retVal, typeof(T));
         return (T)retVal;
     }
 

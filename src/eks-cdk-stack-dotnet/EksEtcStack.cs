@@ -67,7 +67,6 @@ namespace EksEtc
         /// <returns></returns>
         private IVpc GetVpc()
         {
-            
             const string vpcResourceId = "eks-vpc";
 
             if(this.ExistingVpcId != null)
