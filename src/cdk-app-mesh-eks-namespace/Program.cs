@@ -1,13 +1,13 @@
 ﻿using Amazon.CDK;
 
-namespace EksEtc
+namespace CdkAppMeshEksNamespace
 {
     sealed class Program
     {
         public static void Main(string[] args)
         {
             var app = new App();
-            new EksEtcStack(app);
+            new CdkAppMeshEksNamespaceStack(app);
             app.Synth();
         }
     }

@@ -6,6 +6,7 @@ using Amazon.CDK.AWS.IAM;
 using System.Linq;
 using System.Collections.Generic;
 using System;
+using CdkShared;
 
 // ReSharper disable ObjectCreationAsStatement
 
@@ -13,13 +14,13 @@ using System;
 
 namespace EksEtc
 {
-    public class EksEtcStack : Stack
+    public class EksEtcStack : BetterStack
     {
         #region Properties mapped to CDK context parameters (cdk.json)
 
         public string? ExistingVpcId => this.GetCtxString("OptionalExistingVpcId");
         public string K8sVersion => this.GetCtxString("K8sVersion", "1.19");
-        public string EksClusterName => this.GetCtxString("EksClusterName", "test-cluster-by-cdk");
+        public string EksClusterName => GetClusterName(this);
         public double OnDemandInstanceCount => this.GetCtxValue("OnDemandInstanceCount", 3.0);
         public double SpotInstanceCount => this.GetCtxValue("SpotInstanceCount", 0.0);
         public string[] FargateNamespaces => this.GetCtxStrings("FargateNamespaces")?.ToArray() ?? new string[0];
@@ -31,7 +32,6 @@ namespace EksEtc
         public string LbControllerNamespace => this.GetCtxString("LbControllerNamespace", "kube-system");
         public IEnumerable<string> EcrRepoNames => this.GetCtxStrings("EcrRepoNames") ?? Enumerable.Empty<string>();
         public IEnumerable<string> AdminRoleNames => this.GetCtxStrings("ExistingIamRolesToAllowEksManagement")?.ToList() ?? Enumerable.Empty<string>();
-        public static string[] DefaultK8sNamespaces => new string[] { "default", "kube-system", "kube-public" };
         public bool ShouldAddAppMeshController => this.GetCtxValue<bool>("InstallAppMeshController", false);
         public string AppMeshControllerNamespace => this.GetCtxString("AppMeshControllerNamespace", "appmesh-system");
         public bool TraceWithXRayOnAppMesh => this.GetCtxValue<bool>("TraceWithXRayOnAppMesh", true);
@@ -44,7 +44,20 @@ namespace EksEtc
         public bool HasLinuxCompute => this.HasEc2LinuxNodes || this.HasFargate || this.HasGravitonNodes;
         public bool HasOnlyFargate => this.HasFargate && !this.HasEc2LinuxNodes && !this.HasGravitonNodes;
 
-        internal EksEtcStack(Construct scope, string id, IStackProps? props = null) : base(scope, id, props)
+        private static string GetClusterName(Construct scope) 
+            => scope.GetCtxString("EksClusterName", "test-cluster-by-cdk");
+
+        private static BetterStackProps? InitStackProps(BetterStackProps? props)
+        {
+            props ??= new BetterStackProps();
+
+            props.DynamicStackNameGenerator ??= scope => $"EksEtcStack--{GetClusterName(scope)}";
+
+            return props;
+        }
+
+        internal EksEtcStack(Construct scope, string id = "EksEtcStack", BetterStackProps? props = null) 
+            : base(scope, id, InitStackProps(props))
         {
             Console.WriteLine($"OnDemandInstanceCount = {OnDemandInstanceCount}");
             Console.WriteLine($"SpotInstanceCount = {SpotInstanceCount}");
@@ -350,7 +363,7 @@ namespace EksEtc
             if (this.HasOnlyFargate && !this.FargateNamespaces.Contains(namespaceName))
                 throw new Exception($"Fargate is the only type of nodes specified, but namespace \"{namespaceName}\" is not among Fargate namespaces: \"{string.Join(",", this.FargateNamespaces)}\"");
 
-            return DefaultK8sNamespaces.Contains(namespaceName) ? null : eksCluster.AddNamespace(namespaceName);
+            return eksCluster.AddNamespaceIfNecessary(namespaceName);
         }
     }
 }
