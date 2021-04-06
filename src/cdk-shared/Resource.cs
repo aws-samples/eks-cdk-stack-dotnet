@@ -36,7 +36,7 @@ namespace CdkShared
             if (retVal == null)
                 return defaultValue;
             if (retVal is string)
-                return (T) Convert.ChangeType(retVal, typeof(T));
+                return string.IsNullOrEmpty(retVal as string) ? defaultValue :  (T) Convert.ChangeType(retVal, typeof(T));
             return (T) retVal;
         }
 
