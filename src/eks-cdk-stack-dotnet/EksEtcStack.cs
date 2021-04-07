@@ -110,6 +110,9 @@ namespace EksEtc
                 DefaultCapacity = 0,
                 CoreDnsComputeType = HasEc2LinuxNodes ? CoreDnsComputeType.EC2 : CoreDnsComputeType.FARGATE
             });
+            this.Output("KubeCtlRoleARN", eksCluster.KubectlRole.RoleArn, "kubectl role ARN");
+            this.Output("EksOidcConnectProviderARN", eksCluster.OpenIdConnectProvider.OpenIdConnectProviderArn, "EKS OIDC Provider ARN");
+            this.Output("EksClusterVpcId", eksCluster.Vpc.VpcId, "EKS cluster VPC Id");
 
             _ = this.AddNodeGroups(eksCluster);
 
@@ -188,10 +191,10 @@ namespace EksEtc
             Repository? repo = repos.FirstOrDefault();
             if(repo != null)
                 // Create stack output simplifying `docker` CLI authorization to upload container images to the ECR
-                new CfnOutput(this, "Docker-Login-For-ECR", new CfnOutputProps {
-                    Description = "AWS CLI command to authorize docker to push container images to AWS Elastic Container Service (ECR)",
-                    Value = $"aws ecr get-login-password --region {this.Region} | docker login --username AWS --password-stdin {repo.RepositoryUri.Substring(0, repo.RepositoryUri.LastIndexOf("/"))}"
-                });
+                this.Output("Docker-Login-For-ECR",
+                    $"aws ecr get-login-password --region {this.Region} | docker login --username AWS --password-stdin {repo.RepositoryUri.Substring(0, repo.RepositoryUri.LastIndexOf("/"))}",
+                    "AWS CLI command to authorize docker to push container images to AWS Elastic Container Service (ECR)"
+                );
 
             return repos;
         }

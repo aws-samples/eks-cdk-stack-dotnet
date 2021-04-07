@@ -146,7 +146,7 @@ namespace CdkShared
             });
         }
 
-        public static KubernetesManifest AddNamespace(this Cluster eksCluster, string k8sNamespace)
+        public static KubernetesManifest AddNamespace(this ICluster eksCluster, string k8sNamespace)
         {
             var manifest = new Dictionary<string, object>
             {
@@ -160,5 +160,8 @@ namespace CdkShared
 
             return eksCluster.AddManifest($"{k8sNamespace}-ns", manifest);
         }
+
+        public static CfnOutput Output(this Construct scope, string id, string value, string description)
+            => new CfnOutput(scope, id, new CfnOutputProps {Value = value, Description = description});
     }
 }

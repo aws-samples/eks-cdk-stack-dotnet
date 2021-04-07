@@ -18,7 +18,7 @@ namespace CdkShared
         /// <param name="eksCluster"></param>
         /// <param name="namespaceName"></param>
         /// <returns></returns>
-        public static KubernetesManifest AddNamespaceIfNecessary(this Cluster eksCluster, string namespaceName)
+        public static KubernetesManifest AddNamespaceIfNecessary(this ICluster eksCluster, string namespaceName)
         {
             return IsStandardNamespace(namespaceName) ? null : eksCluster.AddNamespace(namespaceName);
         }
@@ -31,7 +31,7 @@ namespace CdkShared
         /// <param name="appMeshControllerNamespace">K8s namespace where AWS App Mesh controller will be installed</param>
         /// <param name="traceWithXRayOnAppMesh">Set to true to enable AWS X-Ray side-car container </param>
         /// <returns></returns>
-        public static HelmChart AddAppMeshController(this Cluster eksCluster, 
+        public static HelmChart AddAppMeshController(this ICluster eksCluster, 
             string appMeshControllerNamespace = "appmesh-system",
             bool traceWithXRayOnAppMesh = true)
         {
@@ -92,11 +92,11 @@ namespace CdkShared
         /// <param name="eksCluster"></param>
         /// <param name="lbControllerNamespace"></param>
         /// <returns></returns>
-        public static HelmChart AddAwsLoadBalancerController(this Cluster eksCluster, 
+        public static HelmChart AddAwsLoadBalancerController(this ICluster eksCluster, 
             string lbControllerNamespace = "kube-system")
         {
-            KubernetesManifest lbcNamespace = AddNamespaceIfNecessary(eksCluster, lbControllerNamespace);
-            ServiceAccount svcAccount = CreateLbControllerServiceAccount(eksCluster, lbControllerNamespace, lbcNamespace);
+            KubernetesManifest lbcNamespace = eksCluster.AddNamespaceIfNecessary(lbControllerNamespace);
+            ServiceAccount svcAccount = eksCluster.CreateLbControllerServiceAccount(lbControllerNamespace, lbcNamespace);
 
             // Runs Helm chart installing AWS LB controller.
             // The manifest will be accessible via "helm list" on the system where "cdk deploy" was run.
@@ -132,7 +132,7 @@ namespace CdkShared
         /// <param name="eksCluster"></param>
         /// <param name="k8sNamespace">K8s namespace where ALB Ingress Controller will be installed</param>
         /// <returns></returns>
-        private static ServiceAccount CreateLbControllerServiceAccount(Cluster eksCluster, string k8sNamespace, KubernetesManifest lbcNamespace)
+        private static ServiceAccount CreateLbControllerServiceAccount(this ICluster eksCluster, string k8sNamespace, KubernetesManifest lbcNamespace)
         {
             ServiceAccount svcAccount = eksCluster.AddServiceAccount("aws-lb-controller-svc-account", new ServiceAccountOptions
             {
