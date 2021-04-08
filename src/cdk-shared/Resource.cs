@@ -146,19 +146,54 @@ namespace CdkShared
             });
         }
 
-        public static KubernetesManifest AddNamespace(this ICluster eksCluster, string k8sNamespace)
+        public static KubernetesManifest AddNamespace(this ICluster eksCluster, string k8sNamespace, Dictionary<string, object>? labels = null)
         {
+            var resourceMetadata = new Dictionary<string, object>
+            {
+                ["name"] = k8sNamespace
+            };
+
+            if (labels != null && labels.Count > 0)
+                resourceMetadata.Add("labels", labels);
+
             var manifest = new Dictionary<string, object>
             {
                 ["apiVersion"] = "v1",
                 ["kind"] = "Namespace",
-                ["metadata"] = new Dictionary<string, object>
-                {
-                    ["name"] = k8sNamespace
-                }
+                ["metadata"] = resourceMetadata
             };
 
             return eksCluster.AddManifest($"{k8sNamespace}-ns", manifest);
+        }
+
+        public static KubernetesManifest AddAppMesh(this ICluster eksCluster, string appMeshName, Dictionary<string, object>? labels = null)
+        {
+            var resourceMetadata = new Dictionary<string, object>
+            {
+                ["name"] = appMeshName
+            };
+
+            if (labels != null && labels.Count > 0)
+                resourceMetadata.Add("labels", labels);
+
+            var manifest = new Dictionary<string, object>
+            {
+                ["apiVersion"] = "appmesh.k8s.aws/v1beta2",
+                ["kind"] = "Mesh",
+                ["metadata"] = resourceMetadata,
+                ["spec"] = new Dictionary<string,object>
+                {
+                    ["namespaceSelector"] = new Dictionary<string, object>
+                    {
+                        ["matchLabels"] = new Dictionary<string, object>
+                        {
+                            ["mesh"] = appMeshName
+                        }
+                    }
+                }
+            };
+
+            return eksCluster.AddManifest($"app-mesh-{appMeshName}", manifest);
         }
 
         public static CfnOutput Output(this Construct scope, string id, string value, string description)

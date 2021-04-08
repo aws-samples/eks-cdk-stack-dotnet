@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
+using Amazon.CDK;
 using Amazon.CDK.AWS.EKS;
 using Amazon.CDK.AWS.IAM;
 
@@ -17,10 +18,51 @@ namespace CdkShared
         /// </summary>
         /// <param name="eksCluster"></param>
         /// <param name="namespaceName"></param>
+        /// <param name="labels">Optional namespace labels</param>
         /// <returns></returns>
-        public static KubernetesManifest AddNamespaceIfNecessary(this ICluster eksCluster, string namespaceName)
+        public static KubernetesManifest AddNamespaceIfNecessary(this ICluster eksCluster, string namespaceName, Dictionary<string, object> labels = null)
         {
-            return IsStandardNamespace(namespaceName) ? null : eksCluster.AddNamespace(namespaceName);
+            return IsStandardNamespace(namespaceName) ? null : eksCluster.AddNamespace(namespaceName, labels);
+        }
+
+        public static ServiceAccount AddServiceAccount(this ICluster eksCluster, string name,
+            string k8sNamespace, IDependable dependency)
+        {
+            ServiceAccount svcAccount = eksCluster.AddServiceAccount($"svc-account-{name}-{k8sNamespace}", new ServiceAccountOptions
+            {
+                Name = name,
+                Namespace = k8sNamespace
+            });
+            
+            if(dependency != null)
+                svcAccount.Node.AddDependency(dependency);
+
+            return svcAccount;
+        }
+
+        public static ServiceAccount AddServiceAccount(this ICluster eksCluster, string name,
+            string k8sNamespace, IDependable dependency, params string[] managedIamPolicyNames)
+        {
+            var svcAccount = eksCluster.AddServiceAccount(name, k8sNamespace, dependency);
+            
+            foreach (string managedPolicyName in managedIamPolicyNames)
+            {
+                svcAccount.Role.AddManagedPolicy(ManagedPolicy.FromAwsManagedPolicyName(managedPolicyName));
+            }
+
+            return svcAccount;
+        }
+        public static ServiceAccount AddServiceAccount(this ICluster eksCluster, string name,
+            string k8sNamespace, IDependable dependency, params PolicyStatement[] policyStatements)
+        {
+            var svcAccount = eksCluster.AddServiceAccount(name, k8sNamespace, dependency);
+
+            foreach (var iamPolicyStatement in policyStatements)
+            {
+                svcAccount.AddToPrincipalPolicy(iamPolicyStatement);
+            }
+
+            return svcAccount;
         }
 
 
@@ -36,20 +78,12 @@ namespace CdkShared
             bool traceWithXRayOnAppMesh = true)
         {
             // Create K8s namespace if installing the controller in non-default/kube-system namespace
-            KubernetesManifest amcNamespace = eksCluster.AddNamespaceIfNecessary(appMeshControllerNamespace);
+            var amcNamespace = eksCluster.AddNamespaceIfNecessary(appMeshControllerNamespace);
 
             // Create K8s service account for the controller. This service account will be mapped to AWS IAM Roles
             // letting controller interface with AWS services to do its job.
-            ServiceAccount svcAccount = eksCluster.AddServiceAccount("aws-app-mesh-controller-svc-account", new ServiceAccountOptions
-            {
-                Name = "appmesh-controller",
-                Namespace = appMeshControllerNamespace
-            });
-            svcAccount.Role.AddManagedPolicy(ManagedPolicy.FromAwsManagedPolicyName("AWSCloudMapFullAccess"));
-            svcAccount.Role.AddManagedPolicy(ManagedPolicy.FromAwsManagedPolicyName("AWSAppMeshFullAccess"));
-
-            if (amcNamespace != null)
-                svcAccount.Node.AddDependency(amcNamespace);
+            ServiceAccount svcAccount = eksCluster.AddServiceAccount("appmesh-controller", appMeshControllerNamespace,
+                                    amcNamespace, "AWSCloudMapFullAccess", "AWSAppMeshFullAccess");
 
             // Set Helm chart parameters
             var chartValues = new Dictionary<string, object>
@@ -134,22 +168,11 @@ namespace CdkShared
         /// <returns></returns>
         private static ServiceAccount CreateLbControllerServiceAccount(this ICluster eksCluster, string k8sNamespace, KubernetesManifest lbcNamespace)
         {
-            ServiceAccount svcAccount = eksCluster.AddServiceAccount("aws-lb-controller-svc-account", new ServiceAccountOptions
-            {
-                Name = "aws-lb-controller",
-                Namespace = k8sNamespace
-            });
-
-            if (lbcNamespace != null)
-                svcAccount.Node.AddDependency(lbcNamespace);
-
             IEnumerable<object> lbControllerIamPolicy = DownloadLbControllerIamPolicyStatements();
-            foreach (object iamPolicyJsonItem in lbControllerIamPolicy)
-            {
-                PolicyStatement iamPolicyStatement = PolicyStatement.FromJson(iamPolicyJsonItem);
-                svcAccount.AddToPrincipalPolicy(iamPolicyStatement);
-            }
-            return svcAccount;
+            IEnumerable<PolicyStatement> policies =
+                lbControllerIamPolicy.Select(iamPolicyJsonItem => PolicyStatement.FromJson(iamPolicyJsonItem));
+            
+            return eksCluster.AddServiceAccount("aws-lb-controller", k8sNamespace, lbcNamespace, policies.ToArray()); 
         }
 
         /// <summary>
@@ -167,6 +190,5 @@ namespace CdkShared
             var policyStatements = (IEnumerable<object>)parsedPolicy?["Statement"];
             return policyStatements;
         }
-
     }
 }
