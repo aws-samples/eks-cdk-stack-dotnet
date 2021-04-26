@@ -30,7 +30,7 @@ namespace CdkAppMeshEksNamespace
         public string EnvoyServiceAccountName => this.GetCtxString("EnvoyServiceAccountName", "envoy-svc-account");
         public string IngressGatewayHelmChartUrl => this.GetCtxString("IngressGatewayHelmChartUrl",
             "https://github.com/aws-samples/aws-app-mesh-helm-chart/raw/main/packaged-charts/eks-app-mesh-gateway-0.1.0.tgz");
-        public string IngressGatewayImageTag => this.GetCtxString("IngressGatewayImageTag", "v1.16.1.1-prod");
+        public string IngressGatewayImageTag => this.GetCtxString("IngressGatewayImageTag", "v1.17.2.0-prod");
 
         public IEnumerable<string> EnvoyServiceAccountManagedPolicies => this.GetCtxStrings(
             "EnvoyServiceAccountManagedPolicies",

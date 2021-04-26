@@ -32,10 +32,7 @@ namespace EksEtc
         public string LbControllerNamespace => this.GetCtxString("LbControllerNamespace", "kube-system");
         public IEnumerable<string> EcrRepoNames => this.GetCtxStrings("EcrRepoNames") ?? Enumerable.Empty<string>();
         public IEnumerable<string> AdminRoleNames => this.GetCtxStrings("ExistingIamRolesToAllowEksManagement")?.ToList() ?? Enumerable.Empty<string>();
-        public bool ShouldAddAppMeshController => this.GetCtxValue<bool>("InstallAppMeshController", false);
-        public string AppMeshControllerNamespace => this.GetCtxString("AppMeshControllerNamespace", "appmesh-system");
-        public bool TraceWithXRayOnAppMesh => this.GetCtxValue<bool>("TraceWithXRayOnAppMesh", true);
-
+        
         #endregion Properties mapped to CDK context parameters (cdk.json)
 
         public bool HasFargate => this.FargateNamespaces?.Length > 0;
@@ -69,7 +66,6 @@ namespace EksEtc
             Cluster eksCluster = this.BuildEksCluster(vpc);
             _ = this.AddClusterAdminIamRoles(eksCluster);
             _ = this.AddAwsLoadBalancerController(eksCluster);
-            _ = this.AddAppMeshController(eksCluster);
         }
 
         /// <summary>
@@ -130,10 +126,12 @@ namespace EksEtc
 
             if (this.HasFargate)
             {
-                eksCluster.AddFargateProfile("eks-fargate", new FargateProfileOptions
-                {
-                    Selectors = this.FargateNamespaces.Select(ns => new Selector { Namespace = ns }).ToArray()
-                });
+                foreach(string fargateNamespace in this.FargateNamespaces)
+                    eksCluster.AddFargateProfile($"fargate-profile-{fargateNamespace}", new FargateProfileOptions
+                    {
+                        FargateProfileName = $"{fargateNamespace}-ns",
+                        Selectors = new ISelector[] { new Selector { Namespace = fargateNamespace }}
+                    });
             }
 
             if (this.HasGravitonNodes)
@@ -226,18 +224,6 @@ namespace EksEtc
             }
 
             return adminRoles;
-        }
-
-        /// <summary>
-        /// Installs AWS App Mesh Controller - an add-on integrating Kubernetes cluster with AWS App Mesh.
-        /// </summary>
-        /// <param name="eksCluster"></param>
-        /// <returns></returns>
-        private HelmChart? AddAppMeshController(Cluster eksCluster)
-        {
-            return this.ShouldAddAppMeshController
-                ? eksCluster.AddAppMeshController(this.AppMeshControllerNamespace, this.TraceWithXRayOnAppMesh)
-                : null;
         }
 
         /// <summary>
