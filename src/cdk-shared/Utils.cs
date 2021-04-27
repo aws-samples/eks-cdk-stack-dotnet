@@ -43,6 +43,7 @@ namespace CdkShared
                     throw new Exception($"Can't propcess token of \"{jTree.Type}\" type.");
             }
         }
+        
         private static void ProcessJsonValue(this JToken jVal, Action<object> resultHandler)
         {
             switch(jVal.Type)
@@ -70,5 +71,7 @@ namespace CdkShared
         }
 
         public static string? BlankToNull(this string str) => string.IsNullOrWhiteSpace(str) ? null : str;
+
+        public static bool IsNullOrBlank(this string str) => string.IsNullOrWhiteSpace(str);
     }
 }
