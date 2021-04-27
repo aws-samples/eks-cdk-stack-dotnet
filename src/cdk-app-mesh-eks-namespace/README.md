@@ -42,7 +42,7 @@ This stack supports the case when the "meshed" namespace has its Pods - applicat
 * "`EksOidcProviderId`": `null` - an of OIDC provider created for the EKS cluster. One can use the *last segment* of the "EksOidcConnectProviderARN" output of the [EKS cluster deployment stack](../eks-cdk-stack-dotnet/README.md) to supply value for this parameter.
 * "`MeshedNamespaceIsOnFargate`": `true` - this setting affects how outside traffic is routed to the Ingress Gateway Envoy pods from ALB. If set to true, it tells the ALB to send traffic straight to Pod IP addresses, as required by Fargate. If false, traffic is sent to cluster EC2 node IP addresses, as required by the non-Fargate case.
 * "`SkipCreatingNamespace`": `false` - if false, "meshed" namespace will be created in the EKS cluster. If true, the stack will assume the namespace that needs to be "meshed" already exists.
-* "`AddIngressGatewayToNs`": `true` - if true, AWS Ingress Gateway, implementing App Mesh Virtual Gateway resource, will be installed in the "meshed" namespace.
+* "`AddIngressGatewayToNs`": `true` - if true, AWS Ingress Gateway, implementing App Mesh Virtual Gateway resource, will be installed in the "meshed" namespace, allowing network traffic ingress from outside into the cluster, via a corresponding ALB created together with the ingress gateway.
 * "`IngressGatewayNameOverride`": `null` - if specified, overrides system-generated name for the Ingress Gateway deployed by the stack.
 * "`SkipLbControllerInstallation`": `true` - if true, the stack assumes that cluster already has AWS LB Controller installed on it. If false, AWS LB Controller will be added to the cluster. AWS LB Controller is used by the Ingress Gateway.
 * "`SkipAppMeshControllerInstallation`": `false` - if false, the stack will install AWS App Mesh Controller on the cluster. If true, the stack assumes that AWS App Mesh Controller is already installed on the cluster.
@@ -52,7 +52,6 @@ This stack supports the case when the "meshed" namespace has its Pods - applicat
 * "`EnvoyServiceAccountName`": "`envoy-svc-account`" - the name of the K8s ServiceAccount that will be created for running Envoy containers. The service account is scoped to the "meshed" namespace.
 * "`EnvoyServiceAccountManagedPolicies`": "`AWSAppMeshEnvoyAccess,AWSCloudMapDiscoverInstanceAccess,AWSXRayDaemonWriteAccess,CloudWatchLogsFullAccess,AWSCloudMapFullAccess,AWSAppMeshFullAccess`" - IAM managed policies assigned to the K8s ServiceAccount used for running Envoy pods.
 * "`IngressGatewayHelmChartUrl`": "`https://github.com/aws-samples/aws-app-mesh-helm-chart/raw/main/packaged-charts/eks-app-mesh-gateway-0.1.0.tgz`" - URL of the Helm chart used to install Ingress Gateway in the "meshed" namespace.
-* "`IngressGatewayImageTag`": "`v1.17.2.0-prod`" - the container image tag of the Envoy to be used. Latest version information can be found https://docs.aws.amazon.com/app-mesh/latest/userguide/envoy.html.
 
 ## Useful commands
 

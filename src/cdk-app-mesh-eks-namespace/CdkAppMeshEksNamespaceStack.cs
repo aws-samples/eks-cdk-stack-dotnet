@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Text;
 using Amazon.CDK;
 using Amazon.CDK.AWS.EC2;
 using Amazon.CDK.AWS.EKS;
@@ -42,7 +41,7 @@ namespace CdkAppMeshEksNamespace
 
         #endregion
 
-        private bool NeedToMeshANamespace => !string.IsNullOrEmpty(this.MeshedNamespace);
+        private bool NeedToMeshANamespace => !this.MeshedNamespace.IsNullOrBlank();
 
         private bool DoNothing => !this.NeedToMeshANamespace
                                     && !this.AddIngressGatewayToNs
@@ -75,7 +74,7 @@ namespace CdkAppMeshEksNamespace
                 this.AddNamespaceToMesh(eksCluster, appMesh, appMeshController, lbController);
         }
 
-        private void AddNamespaceToMesh(ICluster eksCluster, KubernetesManifest appMesh, HelmChart appMeshController, HelmChart lbController)
+        private void AddNamespaceToMesh(ICluster eksCluster, params IDependable[] dependencies)
         {
             IDependable meshedNsDependency = this.SkipCreatingNamespace
                 ? this.LabelExistingNamespaceForMesh(eksCluster)
@@ -85,11 +84,10 @@ namespace CdkAppMeshEksNamespace
 
             // Create Ingress Gateway in the Namespace
             if (this.AddIngressGatewayToNs)
-                _ = this.AddIngressGatewayToMeshedNamespace(eksCluster, appMesh, appMeshController, lbController, envoySvcAccount);
+                _ = this.AddIngressGatewayToMeshedNamespace(eksCluster, envoySvcAccount, dependencies);
         }
 
-        private HelmChart AddIngressGatewayToMeshedNamespace(ICluster eksCluster, KubernetesManifest appMesh,
-            HelmChart appMeshController, HelmChart lbController, ServiceAccount envoySvcAccount)
+        private HelmChart AddIngressGatewayToMeshedNamespace(ICluster eksCluster, ServiceAccount envoySvcAccount, params IDependable[] dependencies)
         {
             HelmChart igwChart = eksCluster.AddHelmChart("aws-ingress-gateway-chart", new HelmChartOptions
             {
@@ -120,12 +118,11 @@ namespace CdkAppMeshEksNamespace
             });
 
             igwChart.Node.AddDependency(envoySvcAccount);
-            if (!this.SkipCreatingAppMesh)
-                igwChart.Node.AddDependency(appMesh);
-            if (lbController != null)
-                igwChart.Node.AddDependency(lbController);
-            if (appMeshController != null)
-                igwChart.Node.AddDependency(appMeshController);
+
+            foreach (var dependency in dependencies)
+                if(dependency != null)
+                    igwChart.Node.AddDependency(dependency);
+
             return igwChart;
         }
 
@@ -140,17 +137,32 @@ namespace CdkAppMeshEksNamespace
             return envoySvcAccount;
         }
 
-        private IDependable LabelExistingNamespaceForMesh(ICluster eksCluster)
-        {
-            // TODO: kubectl patch existing namespace to add labels
+        private KubernetesPatch LabelExistingNamespaceForMesh(ICluster eksCluster)
             // kubectl patch with CDK: https://docs.aws.amazon.com/cdk/api/latest/docs/@aws-cdk_aws-eks.KubernetesPatch.html
             // kubectl patch with kubectl: https://kubernetes.io/docs/reference/kubectl/cheatsheet/#patching-resources
-            throw new NotImplementedException(nameof(LabelExistingNamespaceForMesh));
-        }
+            => new KubernetesPatch(this, "label-ns-for-mesh", new KubernetesPatchProps
+            {
+                Cluster = eksCluster,
+                ResourceName = $"namespace/{this.MeshedNamespace}",
+                PatchType = PatchType.MERGE,
+                ApplyPatch = new Dictionary<string, object>
+                {
+                    ["metadata"] = new Dictionary<string, object>
+                    {
+                        ["labels"] = this.CreateMeshedNsLabels()
+                    }
+                },
+                RestorePatch = new Dictionary<string, object>
+                {
+                    ["metadata"] = new Dictionary<string, object>
+                    {
+                        ["labels"] = this.CreateMeshedNsLabels(delete: true)
+                    }
+                }
+            });
 
         private IDependable CreateNewNamespaceAndAddItToMesh(ICluster eksCluster)
         {
-            IDependable meshedNsDependency;
             // create
             if (Eks.IsStandardNamespace(this.MeshedNamespace))
             {
@@ -159,23 +171,29 @@ namespace CdkAppMeshEksNamespace
                     $"but the \"{nameof(this.SkipCreatingNamespace)}\" parameter is set to false.");
             }
 
+            Dictionary<string, object> nsLabels = CreateMeshedNsLabels();
+            IDependable meshedNsDependency = eksCluster.AddNamespaceIfNecessary(this.MeshedNamespace, nsLabels);
+            return meshedNsDependency;
+        }
+
+        private Dictionary<string, object> CreateMeshedNsLabels(bool delete = false)
+        {
             var nsLabels = new Dictionary<string, object>
             {
-                ["appmesh.k8s.aws/sidecarInjectorWebhook"] = "enabled",
-                ["mesh"] = this.AppMeshName
+                ["appmesh.k8s.aws/sidecarInjectorWebhook"] = delete ? string.Empty: "enabled",
+                ["mesh"] = delete ? string.Empty : this.AppMeshName
             };
 
             if (this.AddIngressGatewayToNs)
-                nsLabels.Add("gateway", this.IngressGatewayName);
+                nsLabels.Add("gateway", delete ? string.Empty : this.IngressGatewayName);
 
-            meshedNsDependency = eksCluster.AddNamespaceIfNecessary(this.MeshedNamespace, nsLabels);
-            return meshedNsDependency;
+            return nsLabels;
         }
 
         private KubernetesManifest AddAppMesh(ICluster eksCluster, HelmChart appMeshController)
         {
-            KubernetesManifest mesh = eksCluster.AddAppMesh(this.AppMeshName);
-            if (appMeshController != null)
+            KubernetesManifest mesh = this.SkipCreatingAppMesh ? null : eksCluster.AddAppMesh(this.AppMeshName);
+            if (mesh != null && appMeshController != null)
                 mesh.Node.AddDependency(appMeshController);
             return mesh;
         }
