@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-* Make sure you have [this](https://dotnet.microsoft.com/download) installed.
+* Install [CDK CLI](https://docs.aws.amazon.com/cdk/latest/guide/getting_started.html#getting_started_install) and [latest .NET runtime for your platform](https://dotnet.microsoft.com/download).
 * cd into the directory containing this file.
 * Check out [installation parameters](./cdk.json) in cdk.json "context" section, for better idea of this stack's capabilities.
 * Run 
